@@ -3,6 +3,7 @@
 // RequireJS configuration
 require.config({
   baseUrl: ".",
+  waitSeconds: 20,
   paths: {
     "jquery": "../lib/jquery/jquery.min",
     "react": "../lib/react/react",
