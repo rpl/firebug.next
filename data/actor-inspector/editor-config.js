@@ -9,7 +9,7 @@ require.config({
     "react": "../lib/react/react",
     "bootstrap": "../lib/bootstrap/js/bootstrap.min",
     "react-bootstrap": "../lib/react-bootstrap/react-bootstrap.min",
-    "immutable": "../lib/immutable/immutable.min",
+    "baobab": "../lib/baobab/baobab.min",
     "reps": "../reps",
   }
 });

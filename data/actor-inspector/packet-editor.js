@@ -4,7 +4,7 @@ define(function(require, exports, module) {
 
 // Dependencies
 const React = require("react");
-const Immutable = require("immutable");
+const Baobab = require("baobab");
 const ReactBootstrap = require("react-bootstrap");
 const { Reps } = require("reps/reps");
 
@@ -14,44 +14,55 @@ const Popover = React.createFactory(ReactBootstrap.Popover);
 const ButtonGroup = React.createFactory(ReactBootstrap.ButtonGroup);
 const Button = React.createFactory(ReactBootstrap.Button);
 
-const { UL, LI, SPAN, DIV, TABLE, TBODY, TFOOT, TR, TD, BUTTON, TEXTAREA } = Reps.DOM;
+const { UL, LI, SPAN, DIV, TABLE, TBODY, THEAD, TFOOT, TR, TD, BUTTON, TEXTAREA } = Reps.DOM;
+
+var CursorMixin = {
+  componentWillUnmount: function() {
+    this.props.cursor.off('update', this.onUpdatedCursor);
+  },
+
+  componentDidMount: function() {
+    this.props.cursor.on('update', this.onUpdatedCursor);
+    this.onUpdatedCursor();
+  }
+};
 
 var PacketField = React.createFactory(React.createClass({
   displayName: "PacketField",
-  componentWillMount: function() {
-    this.setState(this.props);
+  mixins: [CursorMixin],
+  getInitialState: function() {
+    return {
+      value: this.props.cursor.get()
+    };
   },
-
-  componentWillReceiveProps: function(props) {
-    this.setState(props);
+  onUpdatedCursor: function() {
+    this.setState({
+      value: this.props.cursor.get()
+    });
   },
 
   render: function() {
-    var open = this.state.open;
-    var edit = this.state.edit;
-    var valid = this.state.valid;
-    var keys = this.state.keys;
-    var cursor = this.state.cursor;
-    var editorRawValue = this.state.editorRawValue;
+    console.log("PROPS", this.props);
+    var { label, cursor, actions } = this.props;
 
-    var { key, value } = this.state.kv;
+    var { open, edit, valid } = this.state;
+    var { value, editorRawValue } = this.state;
 
-    var keyStr = typeof key == "number" ? "[" + key + "]: " : key + ": ";
+    value = value ? value : cursor.get();
 
-    var onUpdateCursor = this.props.onUpdateCursor;
-    var onContextMenu = this.props.onContextMenu;
+    var keyStr = label + ": ";
+
     var content = [];
 
-    if ((open && !edit)
-        && (value instanceof Immutable.Map ||
-            value instanceof Immutable.List)) {
+    if ((open && !edit) && !!value
+        && (value instanceof Array ||
+            value instanceof Object)) {
       var childs = [];
-      value.forEach(function (value, key) {
-        childs.push(PacketField({ cursor: cursor, keys: keys.concat(key),
-                                  key: key,
-                                  kv: {value: value, key: key},
-                                  onContextMenu: onContextMenu,
-                                  onUpdateCursor: onUpdateCursor }));
+      Object.keys(value).forEach(function (key) {
+        var fieldCursor = cursor.select(key);
+        childs.push(PacketField({ cursor: fieldCursor, key: key, label: key,
+                                  inCollection: true,
+                                  actions: actions }));
       });
       content = content.concat([TD({ colSpan: 2, className: "memberLabelCell" }, [
         SPAN({ onClick: this.onToggleOpen, className: "memberLabel domLabel" }, keyStr),
@@ -61,6 +72,7 @@ var PacketField = React.createFactory(React.createClass({
     } else {
       var editorClassName = editorRawValue && !valid ? "invalid" : "valid";
       var valueStr = editorRawValue ? editorRawValue : JSON.stringify(value);
+      console.log("VALUE", value, valueStr, editorRawValue);
       var valueSummary = valueStr.length > 33 ? valueStr.slice(0,30) + "..." : valueStr;
       var valueEl = !edit ? valueSummary :
             TEXTAREA({ value: valueStr, onChange: this.onChange,
@@ -77,7 +89,7 @@ var PacketField = React.createFactory(React.createClass({
 
     var rowClassName = "memberRow domRow";
 
-    if (value instanceof Immutable.Map || value instanceof Immutable.List) {
+    if (value && (value instanceof Array || value instanceof Object)) {
       rowClassName += " hasChildren";
     }
 
@@ -90,50 +102,61 @@ var PacketField = React.createFactory(React.createClass({
   },
 
   onDoubleClick: function(evt) {
-    this.props.onContextMenu(this.refs.popover);
+    this.props.actions.togglePopover(this.refs.popover);
 
     evt.stopPropagation();
   },
 
   renderContextMenu: function() {
-    var isCollection = this.state.kv.value instanceof Immutable.Map ||
-          this.state.kv.value instanceof Immutable.List;
+    var cursor = this.props.cursor;
+    var isCollection = (v) => v && (v instanceof Array ||
+                                    v instanceof Object);
 
-    console.log("IS COLLECTION", isCollection);
-
+    var value = cursor.get();
+    console.log("IS COLLECTION", isCollection(value));
     var buttons = [
-      Button({ onClick: this.onToggleEdit }, this.state.edit ? "Save" : "Edit"),
-      Button({}, "Add"),
-      Button({}, "Remove")
+      Button({ onClick: this.onToggleEdit }, this.state.edit ? "Save" : "Edit")
     ];
 
-    if (!isCollection) {
-      buttons.splice(1,1);
+    if (isCollection(value)) {
+      buttons.push(Button({ onClick: this.onAdd }, "Add"));
     }
 
-    return ButtonGroup({ }, buttons);
+    if (this.props.inCollection) {
+      buttons.push(Button({ onClick: this.onRemoveFromParent }, "Remove"));
+    }
+
+
+    return DIV({}, [
+      ButtonGroup({ }, buttons)
+    ]);
+  },
+
+  onAdd: function(event) {
+
+  },
+
+  onRemoveFromParent: function(event) {
+
   },
 
   onChange: function(event) {
     //console.log("ONCHANGE", event, event.target.value);
-    var newValue, valid, error = false;
+    var stateUpdate = {
+      editorRawValue: event.target.value,
+      valid: false,
+      error: null
+    };
 
     try {
-      newValue = JSON.parse(event.target.value);
-      valid = true;
+      stateUpdate.value = JSON.parse(event.target.value);
+      stateUpdate.valid = true;
     } catch(e) {
-      valid = false;
-      error = e;
+      stateUpdate.valid = false;
+      stateUpdate.error = e;
     }
-    this.setState({
-      editorRawValue: event.target.value,
-      kv: {
-        key: this.state.kv.key,
-        value: newValue ? Immutable.fromJS(newValue) : this.state.kv.value
-      },
-      valid: valid,
-      error: error
-    });
+
+    this.setState(stateUpdate);
   },
   onToggleOpen: function(evt) {
     if (this.refs.popover) {
@@ -156,15 +179,14 @@ var PacketField = React.createFactory(React.createClass({
       this.refs.popover.hide();
     }
 
-    console.log("TOGGLE EDIT");
-    var edit = this.state.edit;
+    var { value, edit } = this.state;
     if (edit) {
-      var { cursor, keys, kv: { value } } = this.state;
-      console.log("UPDATE IN", cursor, keys, value);
-      this.props.onUpdateCursor(cursor.setIn(keys, value));
+      var { cursor } = this.props;
+      cursor.edit(value);
     }
     this.setState({
-      edit: !edit
+      edit: !edit,
+      editorRawValue: null
     });
   }
 
@@ -175,55 +197,60 @@ var PacketField = React.createFactory(React.createClass({
  */
 var PacketEditor = React.createClass({
   displayName: "PacketEditor",
+  mixins: [CursorMixin],
 
-  componentWillMount: function() {
-    console.log("MOUNT", this.props);
-    this.setState(this.props);
+  getInitialState: function() {
+    return {
+      packet: this.props.cursor.get()
+    };
   },
 
-  componentWillReceiveProps: function(props) {
-    console.log("WILL RECEIVE PROPS", props);
-    this.setState(props);
+  onUpdatedCursor: function() {
+    this.setState({
+      packet: this.props.cursor.get()
+    });
   },
 
   render: function() {
     var rows = [];
-    var cursor = this.state.cursor;
-    var onUpdateCursor = this.onUpdateCursor;
-    var onContextMenu = this.props.onContextMenu;
+    var { packet } = this.state;
+    var { cursor, actions } = this.props;
 
-    cursor.forEach(function (value, key) {
-      rows.push(PacketField({ cursor: cursor, keys: [key],
-                              key: key,
-                              kv: { value: value, key: key },
-                              onContextMenu: onContextMenu,
-                              onUpdateCursor: onUpdateCursor }));
+    packet = packet ? packet : cursor.get();
+
+    Object.keys(packet).forEach(function (key) {
+      console.log("PACKET KEY", key);
+      var fieldCursor = cursor.select(key);
+      rows.push(PacketField({ key: key, label: key, inCollection: true,
+                              cursor: fieldCursor, actions: actions }));
     });
 
     var buttons = [
       TR({ style: {textAlign: "center"}}, [
-        TD({ key: "send" }, BUTTON({}, "Send")),
-        TD({ key: "clear" }, BUTTON({}, "Clear"))
+        TD({ key: "send" }, BUTTON({ onClick: this.onSend }, "Send")),
+        TD({ key: "clear" }, BUTTON({ onClick: this.onClear }, "Clear")),
+        TD({ key: "add-field" }, BUTTON({ onClick: this.onAddField }, "Add Field"))
       ])
     ];
 
     return (
-      TABLE({
-        className: "domTable", cellPadding: 0, cellSpacing: 0
-      }, [TBODY({}, rows), TFOOT({}, buttons)] )
+      DIV({}, [
+        buttons,
+        TABLE({
+          className: "domTable", cellPadding: 0, cellSpacing: 0
+        }, [TBODY({}, rows)] )
+      ])
     );
   },
 
   // Event Handlers
-  onClick: function(event) {
-    postChromeMessage("send-packet", JSON.stringify(this.state.cursor.toJS()));
+  onClear: function(event) {
+    this.props.actions.clearPacket();
   },
 
-  onUpdateCursor: function(cursor) {
-    console.log("UPDATED", cursor);
-    this.setState({
-      cursor: cursor
-    });
+  onSend: function(event) {
+    var { actions, cursor } = this.props;
+    actions.sendPacket(cursor.get());
   }
 });
 
