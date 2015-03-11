@@ -4,7 +4,6 @@ define(function(require, exports, module) {
 
 // Dependencies
 const React = require("react");
-const Baobab = require("baobab");
 const ReactBootstrap = require("react-bootstrap");
 const { Reps } = require("reps/reps");
 
@@ -16,53 +15,32 @@ const Button = React.createFactory(ReactBootstrap.Button);
 
 const { UL, LI, SPAN, DIV, TABLE, TBODY, THEAD, TFOOT, TR, TD, BUTTON, TEXTAREA } = Reps.DOM;
 
-var CursorMixin = {
-  componentWillUnmount: function() {
-    this.props.cursor.off('update', this.onUpdatedCursor);
-  },
-
-  componentDidMount: function() {
-    this.props.cursor.on('update', this.onUpdatedCursor);
-    this.onUpdatedCursor();
-  }
-};
-
 var PacketField = React.createFactory(React.createClass({
   displayName: "PacketField",
-  mixins: [CursorMixin],
+
   getInitialState: function() {
-    return {
-      value: this.props.cursor.get()
-    };
-  },
-  onUpdatedCursor: function() {
-    this.setState({
-      value: this.props.cursor.get()
-    });
+    return {};
   },
 
   render: function() {
-    console.log("PROPS", this.props);
     var { label, cursor, actions } = this.props;
 
     var { open, edit, valid } = this.state;
-    var { value, editorRawValue } = this.state;
+    var { editorRawValue } = this.state;
 
-    value = value ? value : cursor.get();
-
+    var value = cursor.deref();
     var keyStr = label + ": ";
 
     var content = [];
 
     if ((open && !edit) && !!value
-        && (value instanceof Array ||
-            value instanceof Object)) {
+        && (value instanceof Immutable.List ||
+            value instanceof Immutable.Map)) {
       var childs = [];
-      Object.keys(value).forEach(function (key) {
-        var fieldCursor = cursor.select(key);
+      value.forEach(function (value, key) {
+        var fieldCursor = cursor.cursor(key);
         childs.push(PacketField({ cursor: fieldCursor, key: key, label: key,
-                                  inCollection: true,
-                                  actions: actions }));
+                                  inCollection: true,  actions: actions }));
       });
       content = content.concat([TD({ colSpan: 2, className: "memberLabelCell" }, [
         SPAN({ onClick: this.onToggleOpen, className: "memberLabel domLabel" }, keyStr),
@@ -72,7 +50,6 @@ var PacketField = React.createFactory(React.createClass({
     } else {
       var editorClassName = editorRawValue && !valid ? "invalid" : "valid";
       var valueStr = editorRawValue ? editorRawValue : JSON.stringify(value);
-      console.log("VALUE", value, valueStr, editorRawValue);
       var valueSummary = valueStr.length > 33 ? valueStr.slice(0,30) + "..." : valueStr;
       var valueEl = !edit ? valueSummary :
             TEXTAREA({ value: valueStr, onChange: this.onChange,
@@ -113,7 +90,6 @@ var PacketField = React.createFactory(React.createClass({
                                     v instanceof Object);
 
     var value = cursor.get();
-    console.log("IS COLLECTION", isCollection(value));
     var buttons = [
       Button({ onClick: this.onToggleEdit }, this.state.edit ? "Save" : "Edit")
     ];
@@ -141,7 +117,6 @@ var PacketField = React.createFactory(React.createClass({
   },
 
   onChange: function(event) {
-    //console.log("ONCHANGE", event, event.target.value);
     var stateUpdate = {
       editorRawValue: event.target.value,
       valid: false,
@@ -182,7 +157,7 @@ var PacketField = React.createFactory(React.createClass({
     var { value, edit } = this.state;
     if (edit) {
       var { cursor } = this.props;
-      cursor.edit(value);
+      cursor.update(() => Immutable.fromJS(value));
     }
     this.setState({
       edit: !edit,
@@ -195,32 +170,46 @@ var PacketField = React.createFactory(React.createClass({
 /**
  * TODO docs
  */
-var PacketEditor = React.createClass({
-  displayName: "PacketEditor",
-  mixins: [CursorMixin],
+
+var ObserveReferenceMixin = {
+  componentWillUnmount: function() {
+    if (this._unobserve) {
+      this._unobserve();
+      this._unobserve = null;
+    }
+  },
+
+  componentDidMount: function() {
+    this._unobserve = this.props.reference.observe(this.onUpdatedReference);
+    this.onUpdatedReference();
+  },
 
   getInitialState: function() {
     return {
-      packet: this.props.cursor.get()
+      cursor: this.props.reference.cursor()
     };
   },
 
-  onUpdatedCursor: function() {
+  onUpdatedReference: function() {
+    console.log("UPDATED REFERENCE", this.props.reference.cursor().deref().toJS());
     this.setState({
-      packet: this.props.cursor.get()
+      cursor: this.props.reference.cursor()
     });
   },
+};
+
+var PacketEditor = React.createClass({
+  displayName: "PacketEditor",
+  mixins: [ObserveReferenceMixin],
 
   render: function() {
     var rows = [];
-    var { packet } = this.state;
-    var { cursor, actions } = this.props;
+    var { actions, reference } = this.props;
+    var { cursor } = this.state;
+    var packet = cursor.deref();
 
-    packet = packet ? packet : cursor.get();
-
-    Object.keys(packet).forEach(function (key) {
-      console.log("PACKET KEY", key);
-      var fieldCursor = cursor.select(key);
+    packet.forEach(function (value, key) {
+      var fieldCursor = cursor.cursor(key);
       rows.push(PacketField({ key: key, label: key, inCollection: true,
                               cursor: fieldCursor, actions: actions }));
     });
@@ -249,8 +238,8 @@ var PacketEditor = React.createClass({
   },
 
   onSend: function(event) {
-    var { actions, cursor } = this.props;
-    actions.sendPacket(cursor.get());
+    var { actions, reference } = this.props;
+    actions.sendPacket(reference.cursor().deref().toJS());
   }
 });
 

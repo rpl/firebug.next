@@ -9,8 +9,15 @@ require.config({
     "react": "../lib/react/react",
     "bootstrap": "../lib/bootstrap/js/bootstrap.min",
     "react-bootstrap": "../lib/react-bootstrap/react-bootstrap.min",
-    "baobab": "../lib/baobab/baobab.min",
+    "immutable": "../lib/immutable/immutable",
+    "immutable-global": "../lib/immutable/global",
     "reps": "../reps",
+    "immstruct": "../lib/immstruct/immstruct",
+  },
+  shim: {
+    'immstruct': {
+      'deps': ['immutable-global']
+    }
   }
 });
 
