@@ -14,7 +14,8 @@ define(function(require) {
         type: "requestTypes"
       },
       openedKeyPaths: {},
-      newFieldInKeyPath: null
+      creatingFieldInKeyPath: null,
+      renamingFieldKeyPath: null
     },
     currentPopover: null
   });
@@ -30,13 +31,38 @@ define(function(require) {
     },
     addNewFieldInto: function(keyPath) {
       stateTree.cursor(
-        ["packetEditor", "newFieldInKeyPath"]
+        ["packetEditor", "creatingFieldInKeyPath"]
       ).update(() => keyPath);
     },
     renameField: function(keyPath) {
       stateTree.cursor(
-        ["packetEditor", "newFieldInKeyPath"]
+        ["packetEditor", "renamingFieldKeyPath"]
       ).update(() => keyPath);
+    },
+    exitRenameFieldEditing: function(keyPath, oldKey, newKey) {
+      stateTree.cursor(
+        ["packetEditor", "renamingFieldKeyPath"]
+      ).update(() => null);
+
+      // TODO: check if the newKey is invalid or it already exists
+      var parentKeyPathCursor = stateTree.cursor(
+        ["packetEditor", "packet"].concat(keyPath.slice(0, -1))
+      );
+
+      var value = parentKeyPathCursor.cursor(oldKey).deref();
+      parentKeyPathCursor.delete(oldKey);
+      parentKeyPathCursor.set(newKey, value);
+    },
+    exitCreateFieldEditing: function(keyPath, newKey) {
+      stateTree.cursor(
+        ["packetEditor", "creatingFieldInKeyPath"]
+      ).update(() => null);
+
+      var parentKeyPathCursor = stateTree.cursor(
+        ["packetEditor", "packet"].concat(keyPath)
+      );
+
+      parentKeyPathCursor.set(newKey, undefined);
     },
     removeFieldFromParent: function (keyPath) {
       console.log("REMOVE ", keyPath);

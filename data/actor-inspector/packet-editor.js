@@ -20,7 +20,9 @@ const Popover = React.createFactory(ReactBootstrap.Popover);
 const ButtonGroup = React.createFactory(ReactBootstrap.ButtonGroup);
 const Button = React.createFactory(ReactBootstrap.Button);
 
-const { UL, LI, SPAN, DIV, TABLE, TBODY, THEAD, TFOOT, TR, TD, BUTTON, TEXTAREA } = Reps.DOM;
+const { UL, LI, SPAN, DIV,
+        TABLE, TBODY, THEAD, TFOOT, TR, TD,
+        INPUT, TEXTAREA } = Reps.DOM;
 
 var PacketField = React.createFactory(React.createClass({
   displayName: "PacketField",
@@ -31,11 +33,12 @@ var PacketField = React.createFactory(React.createClass({
 
   render: function() {
     var { open, label, cursor, actions, level, hasChildren } = this.props;
+    var { renaming, creating } = this.props;
 
     var { edit, valid } = this.state;
-    var { editorRawValue } = this.state;
+    var { editorRawValue, newKeyValue } = this.state;
 
-    var value = cursor.deref();
+    var value = !creating ? cursor.deref() : undefined;
     value = value && value.toJS ? value.toJS() : value;
 
     var content = [];
@@ -43,6 +46,11 @@ var PacketField = React.createFactory(React.createClass({
     var editorClassName = editorRawValue && !valid ? "invalid" : "valid";
     var valueStr = editorRawValue ? editorRawValue : JSON.stringify(value);
     var valueSummary = Reps.getRep(value)({ object: value });
+
+    var keyEl = !renaming ? label :
+          INPUT({ value: (typeof newKeyValue !== "undefined" ? newKeyValue : label),
+                  onChange: this.onKeyChange, onKeyPress: this.onKeyPress,
+                  className: editorClassName, oldStyle: { width: '50%' } });
 
     var valueEl = !edit ? valueSummary :
           TEXTAREA({ value: valueStr, onChange: this.onChange,
@@ -53,7 +61,7 @@ var PacketField = React.createFactory(React.createClass({
            className: "memberLabelCell",
            style: { paddingLeft: 8 * level }
          },
-         SPAN({ className: "memberLabel domLabel"}, label)),
+         SPAN({ className: "memberLabel domLabel"}, keyEl)),
       TD({ onDoubleClick: this.onDoubleClick,
            className: "memberValueCell" }, open ? "..." : valueEl)
     ]);
@@ -71,7 +79,8 @@ var PacketField = React.createFactory(React.createClass({
     return (
       OverlayTrigger({
         ref: "popover", trigger: "manual", placement: "bottom",
-        overlay: Popover({ title: label }, this.renderContextMenu())
+        overlay: Popover({ title: label, onClick: () => this.hidePopover() },
+                         this.renderContextMenu())
       }, TR({ className: rowClassName }, content))
     );
   },
@@ -91,26 +100,55 @@ var PacketField = React.createFactory(React.createClass({
     var buttons = [
       Button({ onClick: this.onToggleEdit,
                bsSize: "xsmall" }, this.state.edit ? "Save" : "Edit"),
+      Button({ onClick: this.onRenameField,
+               bsSize: "xsmall" }, "Rename"),
       Button({ onClick: this.onRemoveFromParent,
                             bsSize: "xsmall" }, "Remove")
     ];
 
     if (isCollection(value)) {
-      buttons.push(Button({ onClick: this.onAddNewChild,
+      buttons.push(Button({ onClick: this.onAddNewFieldInto,
                             bsSize: "xsmall" }, "Add New Child"));
     }
 
     return ButtonGroup({ }, buttons);
   },
 
-  onAddNewChild: function(event) {
+  onAddNewFieldInto: function(event) {
+    this.hidePopover();
     var { actions, keyPath } = this.props;
     actions.addNewFieldInto(keyPath);
   },
 
+  onRenameField: function(event) {
+    this.hidePopover();
+    var { actions, keyPath } = this.props;
+    actions.renameField(keyPath);
+  },
+
   onRemoveFromParent: function(event) {
+    this.hidePopover();
     var { actions, keyPath } = this.props;
     actions.removeFieldFromParent(keyPath);
+  },
+
+  onKeyChange: function(event) {
+    this.setState({
+      newKeyValue: event.target.value
+    });
+  },
+
+  onKeyPress: function(event) {
+    var { actions, label, keyPath, creating } = this.props;
+    var { newKeyValue } = this.state;
+
+    if(event.which == 13) {
+      if (!creating) {
+        actions.exitRenameFieldEditing(keyPath, label, newKeyValue);
+      } else {
+        actions.exitCreateFieldEditing(keyPath, newKeyValue);
+      }
+    }
   },
 
   onChange: function(event) {
@@ -130,6 +168,11 @@ var PacketField = React.createFactory(React.createClass({
 
     this.setState(stateUpdate);
   },
+  hidePopover: function() {
+    if (this.refs.popover) {
+      this.refs.popover.hide();
+    }
+  },
   onToggleOpen: function(evt) {
     console.log("TOGGLE OPEN", this.props.keyPath);
 
@@ -137,17 +180,13 @@ var PacketField = React.createFactory(React.createClass({
       return;
     }
 
-    if (this.refs.popover) {
-      this.refs.popover.hide();
-    }
+    this.hidePopover();
 
     this.props.actions.toggleOpen(this.props.keyPath);
     evt.stopPropagation();
   },
   onToggleEdit: function(event) {
-    if (this.refs.popover) {
-      this.refs.popover.hide();
-    }
+    this.hidePopover();
 
     var { value, edit, valid } = this.state;
     var { cursor } = this.props;
@@ -260,15 +299,27 @@ var PacketEditor = React.createClass({
     var { cursor } = this.state;
 
     var packetCursor = cursor.cursor("packet");
-    var openedKeyPaths = cursor.cursor("openedKeyPaths");
+    var openedKeyPathsCursor = cursor.cursor("openedKeyPaths");
+    var creatingFieldInKeyPath = cursor.cursor("creatingFieldInKeyPath").deref();
+    var renamingFieldKeyPath = cursor.cursor("renamingFieldKeyPath").deref();
 
     nestedObjectToFlattenList("packet", -1, packetCursor)
       .forEach(function ({key, level, cursor, keyPath, hasChildren}) {
         var parentKeyPath = keyPath.slice(0,-1);
-        if (level == 0 || openedKeyPaths.cursor(parentKeyPath).deref()) {
+        if (level == 0 || openedKeyPathsCursor.cursor(parentKeyPath).deref()) {
           rows.push(PacketField({ key: keyPath.join("-"), label: key, level: level,
                                   hasChildren: hasChildren, keyPath: keyPath,
-                                  open: !!openedKeyPaths.cursor(keyPath).deref(),
+                                  open: !!openedKeyPathsCursor.cursor(keyPath).deref(),
+                                  renaming: renamingFieldKeyPath ?
+                                    keyPath.join("-") == renamingFieldKeyPath.join("-") : false,
+                                  cursor: cursor, actions: actions }));
+        }
+
+        if (creatingFieldInKeyPath && keyPath.join("-") == creatingFieldInKeyPath.join("-")) {
+          rows.push(PacketField({ key: keyPath.join("-") + "_new",
+                                  label: "...", level: level+1,
+                                  hasChildren: false, keyPath: keyPath,
+                                  renaming: true, creating: true,
                                   cursor: cursor, actions: actions }));
         }
     });
@@ -276,7 +327,8 @@ var PacketEditor = React.createClass({
     return (
       DIV({}, [
         TABLE({
-          className: "domTable", cellPadding: 0, cellSpacing: 0
+          className: "domTable", cellPadding: 0, cellSpacing: 0,
+          style: { marginBottom: 80 }
         }, [TBODY({}, rows)] ),
         PackageEditorToolbar({
           onSend: this.onSend,
