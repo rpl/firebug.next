@@ -105,7 +105,7 @@ var PacketField = React.createFactory(React.createClass({
 
   onAddNewChild: function(event) {
     var { actions, keyPath } = this.props;
-    actions.addFieldInto(keyPath);
+    actions.addNewFieldInto(keyPath);
   },
 
   onRemoveFromParent: function(event) {
@@ -163,6 +163,40 @@ var PacketField = React.createFactory(React.createClass({
   }
 
 }));
+
+/**
+ * TODO docs
+ */
+
+var PackageEditorToolbar = React.createClass({
+  displayName: "PackageEditorToolbar",
+
+  render: function() {
+    return ReactBootstrap.Navbar({fixedBottom: true, style: { minHeight: 36}}, [
+      ReactBootstrap.Nav({}, [
+        ReactBootstrap.ButtonToolbar({}, [
+          ReactBootstrap.Button({ onClick: this.props.onSend,
+                                  bsStyle: "primary", bsSize: "xsmall",
+                                  style: { marginLeft: 12 } }, "Send"),
+
+          ReactBootstrap.Button({ onClick: this.props.onUndo,
+                                  className: "pull-right",
+                                  bsStyle: "", bsSize: "xsmall",
+                                  style: { marginRight: 6 } }, "Undo"),
+          ReactBootstrap.Button({ onClick: this.props.onRedo,
+                                  className: "pull-right",
+                                  bsStyle: "", bsSize: "xsmall",
+                                  style: { marginRight: 6 } }, "Redo"),
+
+          ReactBootstrap.Button({ onClick: this.props.onClear,
+                                  className: "pull-right",
+                                  bsStyle: "", bsSize: "xsmall",
+                                  style: { marginRight: 6 } }, "Clear")
+        ]),
+      ])
+    ]);
+  }
+});
 
 /**
  * TODO docs
@@ -239,36 +273,17 @@ var PacketEditor = React.createClass({
         }
     });
 
-    var bottomToolbar = ReactBootstrap.Navbar({fixedBottom: true, style: { minHeight: 36}}, [
-      ReactBootstrap.Nav({}, [
-        ReactBootstrap.ButtonToolbar({}, [
-          ReactBootstrap.Button({ onClick: this.onSend,
-                                  bsStyle: "primary", bsSize: "xsmall",
-                                  style: { marginLeft: 12 } }, "Send"),
-
-          ReactBootstrap.Button({ onClick: this.onUndo,
-                                  className: "pull-right",
-                                  bsStyle: "", bsSize: "xsmall",
-                                  style: { marginRight: 6 } }, "Undo"),
-          ReactBootstrap.Button({ onClick: this.onRedo,
-                                  className: "pull-right",
-                                  bsStyle: "", bsSize: "xsmall",
-                                  style: { marginRight: 6 } }, "Redo"),
-
-          ReactBootstrap.Button({ onClick: this.onClear,
-                                  className: "pull-right",
-                                  bsStyle: "", bsSize: "xsmall",
-                                  style: { marginRight: 6 } }, "Clear")
-        ]),
-      ])
-    ]);
-
     return (
       DIV({}, [
         TABLE({
           className: "domTable", cellPadding: 0, cellSpacing: 0
         }, [TBODY({}, rows)] ),
-        bottomToolbar
+        PackageEditorToolbar({
+          onSend: this.onSend,
+          onClear: this.onClear,
+          onUndo: this.onUndo,
+          onredo: this.onRedo
+        })
       ])
     );
   },

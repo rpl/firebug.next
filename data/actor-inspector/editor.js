@@ -13,7 +13,8 @@ define(function(require) {
         to: "root",
         type: "requestTypes"
       },
-      openedKeyPaths: {}
+      openedKeyPaths: {},
+      newFieldInKeyPath: null
     },
     currentPopover: null
   });
@@ -27,6 +28,24 @@ define(function(require) {
       stateTree.redo();
       stateTree.forceHasSwapped(null, null, ["packetEditor"]);
     },
+    addNewFieldInto: function(keyPath) {
+      stateTree.cursor(
+        ["packetEditor", "newFieldInKeyPath"]
+      ).update(() => keyPath);
+    },
+    renameField: function(keyPath) {
+      stateTree.cursor(
+        ["packetEditor", "newFieldInKeyPath"]
+      ).update(() => keyPath);
+    },
+    removeFieldFromParent: function (keyPath) {
+      console.log("REMOVE ", keyPath);
+      var parentKeyPathCursor = stateTree.cursor(
+        ["packetEditor", "packet"].concat(keyPath.slice(0, -1))
+      );
+
+      parentKeyPathCursor.delete(keyPath[keyPath.length - 1]);
+    },
     toggleOpen: function(keyPath) {
       var openedKeyPathCursor = stateTree.cursor(
         ["packetEditor", "openedKeyPaths"].concat(keyPath)
@@ -38,7 +57,7 @@ define(function(require) {
 
 
       if (openedKeyPathCursor.deref()) {
-        parentKeyPathCursor.delete(keyPath.slice(-1)[0]);
+        parentKeyPathCursor.delete(keyPath[keyPath.length - 1]);
       } else {
         openedKeyPathCursor.update(() => Immutable.fromJS({}));
       }
