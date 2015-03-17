@@ -7,6 +7,13 @@ const React = require("react");
 const ReactBootstrap = require("react-bootstrap");
 const { Reps } = require("reps/reps");
 
+// Reps
+require("reps/undefined");
+require("reps/string");
+require("reps/number");
+require("reps/array");
+require("reps/object");
+
 // Shortcuts
 const OverlayTrigger = React.createFactory(ReactBootstrap.OverlayTrigger);
 const Popover = React.createFactory(ReactBootstrap.Popover);
@@ -23,57 +30,48 @@ var PacketField = React.createFactory(React.createClass({
   },
 
   render: function() {
-    var { label, cursor, actions } = this.props;
+    var { open, label, cursor, actions, level, hasChildren } = this.props;
 
-    var { open, edit, valid } = this.state;
+    var { edit, valid } = this.state;
     var { editorRawValue } = this.state;
 
     var value = cursor.deref();
-    var keyStr = label + ": ";
+    value = value && value.toJS ? value.toJS() : value;
 
     var content = [];
 
-    if ((open && !edit) && !!value
-        && (value instanceof Immutable.List ||
-            value instanceof Immutable.Map)) {
-      var childs = [];
-      value.forEach(function (value, key) {
-        var fieldCursor = cursor.cursor(key);
-        childs.push(PacketField({ cursor: fieldCursor, key: key, label: key,
-                                  inCollection: true,  actions: actions }));
-      });
-      content = content.concat([TD({ colSpan: 2, className: "memberLabelCell" }, [
-        SPAN({ onClick: this.onToggleOpen, className: "memberLabel domLabel" }, keyStr),
-        TABLE({ className: "", cellPadding: 0, cellSpacing: 0,
-                style: { marginLeft: "0.4em" } }, childs)
-      ])]);
-    } else {
-      var editorClassName = editorRawValue && !valid ? "invalid" : "valid";
-      var valueStr = editorRawValue ? editorRawValue : JSON.stringify(value);
-      var valueSummary = valueStr.length > 33 ? valueStr.slice(0,30) + "..." : valueStr;
-      var valueEl = !edit ? valueSummary :
-            TEXTAREA({ value: valueStr, onChange: this.onChange,
-                       className: editorClassName, style: { width: '88%' } });
+    var editorClassName = editorRawValue && !valid ? "invalid" : "valid";
+    var valueStr = editorRawValue ? editorRawValue : JSON.stringify(value);
+    var valueSummary = Reps.getRep(value)({ object: value });
 
-      content = content.concat([
-        TD({ onClick: this.onToggleOpen,
-             className: "memberLabelCell" },
-           SPAN({ className: "memberLabel domLabel"}, keyStr)),
-        TD({ onDoubleClick: this.onDoubleClick,
-             className: "memberValueCell" }, valueEl)
-      ]);
-    }
+    var valueEl = !edit ? valueSummary :
+          TEXTAREA({ value: valueStr, onChange: this.onChange,
+                     className: editorClassName, style: { width: '88%' } });
+
+    content = content.concat([
+      TD({ onClick: this.onToggleOpen,
+           className: "memberLabelCell",
+           style: { paddingLeft: 8 * level }
+         },
+         SPAN({ className: "memberLabel domLabel"}, label)),
+      TD({ onDoubleClick: this.onDoubleClick,
+           className: "memberValueCell" }, open ? "..." : valueEl)
+    ]);
 
     var rowClassName = "memberRow domRow";
 
-    if (value && (value instanceof Array || value instanceof Object)) {
+    if (hasChildren) {
       rowClassName += " hasChildren";
+    }
+
+    if (open) {
+      rowClassName += " opened";
     }
 
     return (
       OverlayTrigger({
         ref: "popover", trigger: "manual", placement: "bottom",
-        overlay: Popover({ title: keyStr }, this.renderContextMenu())
+        overlay: Popover({ title: label }, this.renderContextMenu())
       }, TR({ className: rowClassName }, content))
     );
   },
@@ -86,34 +84,33 @@ var PacketField = React.createFactory(React.createClass({
 
   renderContextMenu: function() {
     var cursor = this.props.cursor;
-    var isCollection = (v) => v && (v instanceof Array ||
-                                    v instanceof Object);
+    var isCollection = (v) => v && (v instanceof Immutable.Map ||
+                                    v instanceof Immutable.List);
 
-    var value = cursor.get();
+    var value = cursor.deref();
     var buttons = [
-      Button({ onClick: this.onToggleEdit }, this.state.edit ? "Save" : "Edit")
+      Button({ onClick: this.onToggleEdit,
+               bsSize: "xsmall" }, this.state.edit ? "Save" : "Edit"),
+      Button({ onClick: this.onRemoveFromParent,
+                            bsSize: "xsmall" }, "Remove")
     ];
 
     if (isCollection(value)) {
-      buttons.push(Button({ onClick: this.onAdd }, "Add"));
+      buttons.push(Button({ onClick: this.onAddNewChild,
+                            bsSize: "xsmall" }, "Add New Child"));
     }
 
-    if (this.props.inCollection) {
-      buttons.push(Button({ onClick: this.onRemoveFromParent }, "Remove"));
-    }
-
-
-    return DIV({}, [
-      ButtonGroup({ }, buttons)
-    ]);
+    return ButtonGroup({ }, buttons);
   },
 
-  onAdd: function(event) {
-
+  onAddNewChild: function(event) {
+    var { actions, keyPath } = this.props;
+    actions.addFieldInto(keyPath);
   },
 
   onRemoveFromParent: function(event) {
-
+    var { actions, keyPath } = this.props;
+    actions.removeFieldFromParent(keyPath);
   },
 
   onChange: function(event) {
@@ -134,19 +131,17 @@ var PacketField = React.createFactory(React.createClass({
     this.setState(stateUpdate);
   },
   onToggleOpen: function(evt) {
+    console.log("TOGGLE OPEN", this.props.keyPath);
+
+    if (!this.props.hasChildren || this.state.edit) {
+      return;
+    }
+
     if (this.refs.popover) {
       this.refs.popover.hide();
     }
 
-    if (this.state.edit) {
-      return;
-    }
-
-    var open = this.state && this.state.open;
-    this.setState({
-      open: !open
-    });
-
+    this.props.actions.toggleOpen(this.props.keyPath);
     evt.stopPropagation();
   },
   onToggleEdit: function(event) {
@@ -154,13 +149,15 @@ var PacketField = React.createFactory(React.createClass({
       this.refs.popover.hide();
     }
 
-    var { value, edit } = this.state;
-    if (edit) {
-      var { cursor } = this.props;
+    var { value, edit, valid } = this.state;
+    var { cursor } = this.props;
+
+    if (edit && valid) {
       cursor.update(() => Immutable.fromJS(value));
     }
     this.setState({
       edit: !edit,
+      value: edit ? cursor.deref() : null,
       editorRawValue: null
     });
   }
@@ -181,7 +178,6 @@ var ObserveReferenceMixin = {
 
   componentDidMount: function() {
     this._unobserve = this.props.reference.observe(this.onUpdatedReference);
-    this.onUpdatedReference();
   },
 
   getInitialState: function() {
@@ -198,6 +194,28 @@ var ObserveReferenceMixin = {
   },
 };
 
+function nestedObjectToFlattenList(key, level, cursor, keyPath) {
+  keyPath = keyPath || [];
+
+  var data = cursor.deref();
+  var res = [];
+  var hasChildren = data instanceof Immutable.List ||
+                    data instanceof Immutable.Map;
+
+  if (level >= 0) {  // skip the fake root packet object level
+    res.push({ key: key, level: level, cursor: cursor,
+               keyPath: keyPath, hasChildren: hasChildren});
+  }
+
+  if (hasChildren) {
+    data.forEach(function (value, subkey) {
+      res = res.concat(nestedObjectToFlattenList(subkey, level + 1, cursor.cursor(subkey), keyPath.concat(subkey)));
+    });
+  }
+
+  return res;
+}
+
 var PacketEditor = React.createClass({
   displayName: "PacketEditor",
   mixins: [ObserveReferenceMixin],
@@ -206,40 +224,70 @@ var PacketEditor = React.createClass({
     var rows = [];
     var { actions, reference } = this.props;
     var { cursor } = this.state;
-    var packet = cursor.deref();
 
-    packet.forEach(function (value, key) {
-      var fieldCursor = cursor.cursor(key);
-      rows.push(PacketField({ key: key, label: key, inCollection: true,
-                              cursor: fieldCursor, actions: actions }));
+    var packetCursor = cursor.cursor("packet");
+    var openedKeyPaths = cursor.cursor("openedKeyPaths");
+
+    nestedObjectToFlattenList("packet", -1, packetCursor)
+      .forEach(function ({key, level, cursor, keyPath, hasChildren}) {
+        var parentKeyPath = keyPath.slice(0,-1);
+        if (level == 0 || openedKeyPaths.cursor(parentKeyPath).deref()) {
+          rows.push(PacketField({ key: keyPath.join("-"), label: key, level: level,
+                                  hasChildren: hasChildren, keyPath: keyPath,
+                                  open: !!openedKeyPaths.cursor(keyPath).deref(),
+                                  cursor: cursor, actions: actions }));
+        }
     });
 
-    var buttons = [
-      TR({ style: {textAlign: "center"}}, [
-        TD({ key: "send" }, BUTTON({ onClick: this.onSend }, "Send")),
-        TD({ key: "clear" }, BUTTON({ onClick: this.onClear }, "Clear")),
-        TD({ key: "add-field" }, BUTTON({ onClick: this.onAddField }, "Add Field"))
+    var bottomToolbar = ReactBootstrap.Navbar({fixedBottom: true, style: { minHeight: 36}}, [
+      ReactBootstrap.Nav({}, [
+        ReactBootstrap.ButtonToolbar({}, [
+          ReactBootstrap.Button({ onClick: this.onSend,
+                                  bsStyle: "primary", bsSize: "xsmall",
+                                  style: { marginLeft: 12 } }, "Send"),
+
+          ReactBootstrap.Button({ onClick: this.onUndo,
+                                  className: "pull-right",
+                                  bsStyle: "", bsSize: "xsmall",
+                                  style: { marginRight: 6 } }, "Undo"),
+          ReactBootstrap.Button({ onClick: this.onRedo,
+                                  className: "pull-right",
+                                  bsStyle: "", bsSize: "xsmall",
+                                  style: { marginRight: 6 } }, "Redo"),
+
+          ReactBootstrap.Button({ onClick: this.onClear,
+                                  className: "pull-right",
+                                  bsStyle: "", bsSize: "xsmall",
+                                  style: { marginRight: 6 } }, "Clear")
+        ]),
       ])
-    ];
+    ]);
 
     return (
       DIV({}, [
-        buttons,
         TABLE({
           className: "domTable", cellPadding: 0, cellSpacing: 0
-        }, [TBODY({}, rows)] )
+        }, [TBODY({}, rows)] ),
+        bottomToolbar
       ])
     );
   },
 
   // Event Handlers
+  onUndo: function(event) {
+    this.props.actions.undo();
+  },
+  onRedo: function(event) {
+    this.props.actions.redo();
+  },
+
   onClear: function(event) {
     this.props.actions.clearPacket();
   },
 
   onSend: function(event) {
     var { actions, reference } = this.props;
-    actions.sendPacket(reference.cursor().deref().toJS());
+    actions.sendPacket(reference.cursor("packet").deref().toJS());
   }
 });
 

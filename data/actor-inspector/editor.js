@@ -7,24 +7,50 @@ define(function(require) {
   var immstruct = require("immstruct");
   var { PacketEditor } = require("./packet-editor");
 
-  var stateTree = immstruct({
-    models: {
+  var stateTree = immstruct.withHistory({
+    packetEditor: {
       packet: {
         to: "root",
         type: "requestTypes"
-      }
+      },
+      openedKeyPaths: {}
     },
-    views: {
-      currentPopover: null
-    }
+    currentPopover: null
   });
 
   var packetEditorActions = {
+    undo: function() {
+      stateTree.undo();
+      stateTree.forceHasSwapped(null, null, ["packetEditor"]);
+    },
+    redo: function() {
+      stateTree.redo();
+      stateTree.forceHasSwapped(null, null, ["packetEditor"]);
+    },
+    toggleOpen: function(keyPath) {
+      var openedKeyPathCursor = stateTree.cursor(
+        ["packetEditor", "openedKeyPaths"].concat(keyPath)
+      );
+
+      var parentKeyPathCursor = stateTree.cursor(
+        ["packetEditor", "openedKeyPaths"].concat(keyPath.slice(0, -1))
+      );
+
+
+      if (openedKeyPathCursor.deref()) {
+        parentKeyPathCursor.delete(keyPath.slice(-1)[0]);
+      } else {
+        openedKeyPathCursor.update(() => Immutable.fromJS({}));
+      }
+    },
     clearPacket: function() {
-      stateTree.cursor(['models', 'packet']).update(_ => {
+      stateTree.cursor(['packetEditor']).update(_ => {
         return Immutable.fromJS({
-          to: 'root',
-          type: 'requestTypes'
+          packet: {
+            to: 'root',
+            type: 'requestTypes'
+          },
+          openedKeyPaths: {}
         });
       });
     },
@@ -32,7 +58,7 @@ define(function(require) {
       postChromeMessage("send-new-packet", JSON.stringify(packet));
     },
     togglePopover: function(popover) {
-      var oldPopover = stateTree.cursor(['views', 'currentPopover']).deref();
+      var oldPopover = stateTree.cursor(['currentPopover']).deref();
       if (oldPopover && oldPopover._lifeCycleState == "UNMOUNTED") {
         oldPopover = null;
       }
@@ -41,7 +67,7 @@ define(function(require) {
         oldPopover.hide();
       }
 
-      stateTree.cursor(['views', 'currentPopover']).update(_ => popover);
+      stateTree.cursor(['currentPopover']).update(_ => popover);
       popover.toggle();
     }
   };
@@ -49,13 +75,16 @@ define(function(require) {
   // Event Listeners Registration
   window.addEventListener("devtools:select", onSelect);
 
-  React.render(PacketEditor({ reference: stateTree.reference(['models', 'packet']),
+  React.render(PacketEditor({ reference: stateTree.reference(['packetEditor']),
                               actions: packetEditorActions }), document.body);
 
   function onSelect(event) {
     try {
-      stateTree.cursor(['models', 'packet']).update(_ => {
-        return Immutable.fromJS(JSON.parse(event.data));
+      stateTree.cursor(['packetEditor']).update(_ => {
+        return Immutable.fromJS({
+          packet: JSON.parse(event.data),
+          openedKeyPaths: {}
+        });
       });
     } catch(e) {
       console.log("EDITOR EXCEPTION", e);
